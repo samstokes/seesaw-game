@@ -2,5 +2,10 @@
 name = "seesaw-game"
 version = "0.1.0"
 authors = ["Sam Stokes <me@samstokes.co.uk>"]
+#edition = "2018"
 
 [dependencies]
+piston = "0.37.0"
+piston2d-graphics = "0.26.0"
+pistoncore-glutin_window = "0.48.0"
+piston2d-opengl_graphics = "0.54.0"
