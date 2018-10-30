@@ -112,8 +112,13 @@ struct Ground {
 
 impl Ground {
     fn new(world: &mut World<f64>, depth: f64, color: [f32; 4]) -> Self {
+        const LINE_WIDTH: f64 = 1.0;
+
         let shape = ShapeHandle::new(Plane::new(-Vector2::y_axis()));
-        let pos = Isometry2::new(Vector2::y() * depth, nalgebra::zero());
+        let pos = Isometry2::new(
+            Vector2::y() * (depth - LINE_WIDTH + COLLIDER_MARGIN),
+            nalgebra::zero(),
+        );
         world.add_collider(
             COLLIDER_MARGIN,
             shape,
@@ -123,7 +128,7 @@ impl Ground {
         );
         Self {
             depth: depth,
-            line: Line::new(color, 1.0),
+            line: Line::new(color, LINE_WIDTH),
         }
     }
 
@@ -177,9 +182,12 @@ impl Fulcrum {
 
         let shape = ShapeHandle::new(
             ConvexPolygon::try_from_points(&[
-                Point2::new(-half_height, half_height),
-                Point2::new(0.0, -half_height),
-                Point2::new(half_height, half_height),
+                Point2::new(
+                    -half_height + COLLIDER_MARGIN,
+                    half_height - COLLIDER_MARGIN,
+                ),
+                Point2::new(0.0, -half_height + COLLIDER_MARGIN),
+                Point2::new(half_height - COLLIDER_MARGIN, half_height - COLLIDER_MARGIN),
             ])
             .unwrap(),
         );
