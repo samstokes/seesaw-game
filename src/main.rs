@@ -11,6 +11,7 @@ use graphics::line::Line;
 use nalgebra::{Isometry2, Point2, Vector2};
 use ncollide2d::shape::{ConvexPolygon, Cuboid, Plane, ShapeHandle};
 use nphysics2d::{
+    joint::{FreeJoint, RevoluteJoint},
     object::{BodyHandle, Material},
     world::World,
 };
@@ -31,6 +32,7 @@ const PI: f64 = std::f64::consts::PI;
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+const BLUE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 const COLLIDER_MARGIN: f64 = 0.01;
 
@@ -38,8 +40,7 @@ pub struct App {
     gl: GlGraphics,
     world: World<f64>,
     squares: Vec<Square>,
-    fulcrum: Fulcrum,
-    plank: Plank,
+    seesaw: Seesaw,
     ground: Ground,
     render_count: u16,
     debug: bool,
@@ -143,6 +144,49 @@ impl Ground {
     }
 }
 
+struct Seesaw {
+    fulcrum: Fulcrum,
+    plank: Plank,
+}
+
+impl Seesaw {
+    fn render(
+        &self,
+        world: &World<f64>,
+        transform: &graphics::math::Matrix2d,
+        gl: &mut GlGraphics,
+    ) {
+        self.fulcrum.render(world, transform, gl);
+        self.plank.render(world, transform, gl);
+    }
+
+    fn new(
+        world: &mut World<f64>,
+        initial_x: f64,
+        initial_angle: f64,
+        height: f64,
+        length: f64,
+        thickness: f64,
+        offset: f64,
+        color: [f32; 4],
+    ) -> Self {
+        let fulcrum = Fulcrum::new(world, initial_x, height, color);
+        let plank = Plank::new(
+            world,
+            &fulcrum,
+            initial_angle,
+            length,
+            thickness,
+            offset,
+            color,
+        );
+        Self {
+            fulcrum: fulcrum,
+            plank: plank,
+        }
+    }
+}
+
 struct Fulcrum {
     height: f64,
     color: [f32; 4],
@@ -158,8 +202,9 @@ impl Fulcrum {
     ) {
         use graphics::Transformed;
 
-        let body = world.rigid_body(self.physics).unwrap();
+        let body = world.multibody_link(self.physics).unwrap();
         let trans = body.position().translation.vector;
+        let rot = body.position().rotation;
 
         let half_height = self.height * 0.5;
         let polygon = [
@@ -168,15 +213,13 @@ impl Fulcrum {
             [half_height, half_height],
         ];
 
-        let transform = transform.trans(trans[0], trans[1]);
+        let transform = transform.trans(trans[0], trans[1]).rot_rad(rot.angle());
 
         graphics::polygon(self.color, &polygon, transform, gl);
     }
 
-    fn new(world: &mut World<f64>, initial_pos: [f64; 2], height: f64, color: [f32; 4]) -> Self {
+    fn new(world: &mut World<f64>, initial_x: f64, height: f64, color: [f32; 4]) -> Self {
         use nphysics2d::volumetric::Volumetric;
-
-        let [x, y] = initial_pos;
 
         let half_height = height * 0.5;
 
@@ -191,9 +234,21 @@ impl Fulcrum {
             ])
             .unwrap(),
         );
-        let physics = world.add_rigid_body(
-            Isometry2::new(Vector2::new(x, y), 0.0),
-            shape.inertia(1.0),
+        let physics = world.add_multibody_link(
+            BodyHandle::ground(),
+            /* TODO should be this FixedJoint, but it panics in update_inertias
+            FixedJoint::new(Isometry2::new(
+                -Vector2::new(initial_x, GROUND_DEPTH - half_height),
+                nalgebra::zero(),
+            )),
+            */
+            FreeJoint::new(Isometry2::new(
+                Vector2::new(initial_x, GROUND_DEPTH - half_height),
+                nalgebra::zero(),
+            )),
+            nalgebra::zero(),
+            nalgebra::zero(),
+            shape.inertia(10.0),
             shape.center_of_mass(),
         );
 
@@ -229,7 +284,7 @@ impl Plank {
     ) {
         use graphics::Transformed;
 
-        let body = world.rigid_body(self.physics).unwrap();
+        let body = world.multibody_link(self.physics).unwrap();
         let trans = body.position().translation.vector;
         let rot = body.position().rotation;
 
@@ -243,22 +298,34 @@ impl Plank {
 
     fn new(
         world: &mut World<f64>,
-        initial_pos: [f64; 2],
+        fulcrum: &Fulcrum,
         initial_angle: f64,
         length: f64,
         thickness: f64,
+        offset: f64,
         color: [f32; 4],
     ) -> Self {
         use nphysics2d::volumetric::Volumetric;
 
-        let [x, y] = initial_pos;
+        let half_length = length * 0.5;
+        let half_thickness = thickness * 0.5;
+
+        assert!(offset.abs() < half_length);
 
         let shape = ShapeHandle::new(Cuboid::new(Vector2::new(
-            length * 0.5 - COLLIDER_MARGIN,
-            thickness * 0.5 - COLLIDER_MARGIN,
+            half_length - COLLIDER_MARGIN,
+            half_thickness - COLLIDER_MARGIN,
         )));
-        let physics = world.add_rigid_body(
-            Isometry2::new(Vector2::new(x, y), initial_angle),
+
+        let mut joint = RevoluteJoint::new(initial_angle);
+        joint.enable_min_angle(-PI / 4.0);
+        joint.enable_max_angle(PI / 4.0);
+
+        let physics = world.add_multibody_link(
+            fulcrum.physics,
+            joint,
+            Vector2::new(0.0, -fulcrum.height * 0.5),
+            Vector2::new(offset, half_thickness),
             shape.inertia(1.0),
             shape.center_of_mass(),
         );
@@ -320,8 +387,7 @@ impl App {
 
         let ground = &self.ground;
         let squares = &self.squares;
-        let fulcrum = &self.fulcrum;
-        let plank = &self.plank;
+        let seesaw = &self.seesaw;
         let world = &self.world;
         let debug = self.debug;
 
@@ -341,8 +407,7 @@ impl App {
                 square.render(world, &transform, gl);
             }
 
-            fulcrum.render(world, &transform, gl);
-            plank.render(world, &transform, gl);
+            seesaw.render(world, &transform, gl);
 
             ground.render(&transform, gl);
         });
@@ -391,15 +456,15 @@ fn main() {
         Square::new(&mut world, [0.0, 0.0], PI * 0.25 - 0.1, SQUARE_SIZE, RED),
         Square::new(
             &mut world,
-            [SQUARE_SIZE * 4.0, -50.0],
-            0.0,
+            [-SQUARE_SIZE * 5.0, 1.0],
+            PI * 0.25,
             SQUARE_SIZE * 2.0,
             RED,
         ),
         Square::new(
             &mut world,
-            [-SQUARE_SIZE * 5.0, 1.0],
-            PI * 0.25,
+            [SQUARE_SIZE * 5.0, -50.0],
+            0.0,
             SQUARE_SIZE * 3.0,
             RED,
         ),
@@ -412,27 +477,22 @@ fn main() {
         ),
     ];
 
-    let fulcrum = Fulcrum::new(
+    let seesaw = Seesaw::new(
         &mut world,
-        [20.0, GROUND_DEPTH - 10.0],
+        30.0,
+        PI / 8.0,
         FULCRUM_HEIGHT,
-        WHITE,
-    );
-    let plank = Plank::new(
-        &mut world,
-        [5.0, GROUND_DEPTH - 20.0],
-        0.0,
         PLANK_LENGTH,
         PLANK_THICKNESS,
-        WHITE,
+        PLANK_LENGTH / 4.0,
+        BLUE,
     );
 
     let mut app = App {
         gl: GlGraphics::new(opengl),
         world: world,
         squares: squares,
-        fulcrum: fulcrum,
-        plank: plank,
+        seesaw: seesaw,
         ground: ground,
         render_count: 0,
         debug: debug,
