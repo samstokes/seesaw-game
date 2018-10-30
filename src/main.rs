@@ -42,6 +42,7 @@ pub struct App {
     plank: Plank,
     ground: Ground,
     render_count: u16,
+    debug: bool,
 }
 
 struct Square {
@@ -314,6 +315,7 @@ impl App {
         let fulcrum = &self.fulcrum;
         let plank = &self.plank;
         let world = &self.world;
+        let debug = self.debug;
 
         self.gl.draw(args.viewport(), |c, gl| {
             graphics::clear(BLACK, gl);
@@ -323,7 +325,9 @@ impl App {
             // set up so (0, 0) is in the center of the viewport
             let transform = c.transform.trans(half_width, half_height);
 
-            draw_axes(half_width, half_height, &white_line, transform, gl);
+            if debug {
+                draw_axes(half_width, half_height, &white_line, transform, gl);
+            }
 
             for square in squares {
                 square.render(world, &transform, gl);
@@ -351,6 +355,11 @@ fn make_world() -> World<f64> {
 }
 
 fn main() {
+    let debug = std::env::args()
+        .nth(1)
+        .filter(|arg| arg == "--debug")
+        .is_some();
+
     let opengl = OpenGL::V3_2;
 
     let mut window: Window = WindowSettings::new("seesaw", [400, 300])
@@ -418,6 +427,7 @@ fn main() {
         plank: plank,
         ground: ground,
         render_count: 0,
+        debug: debug,
     };
 
     let mut events = event_loop::Events::new(event_loop::EventSettings::new());
