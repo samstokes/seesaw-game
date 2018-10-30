@@ -74,7 +74,7 @@ impl Square {
     fn new(
         world: &mut World<f64>,
         initial_pos: [f64; 2],
-        angle: f64,
+        initial_angle: f64,
         size: f64,
         color: [f32; 4],
     ) -> Self {
@@ -84,7 +84,7 @@ impl Square {
 
         let shape = ShapeHandle::new(Cuboid::new(Vector2::repeat(size * 0.5 - COLLIDER_MARGIN)));
         let physics = world.add_rigid_body(
-            Isometry2::new(Vector2::new(x, y), angle),
+            Isometry2::new(Vector2::new(x, y), initial_angle),
             shape.inertia(1.0),
             shape.center_of_mass(),
         );
@@ -236,7 +236,7 @@ impl Plank {
     fn new(
         world: &mut World<f64>,
         initial_pos: [f64; 2],
-        angle: f64,
+        initial_angle: f64,
         length: f64,
         thickness: f64,
         color: [f32; 4],
@@ -250,7 +250,7 @@ impl Plank {
             thickness * 0.5 - COLLIDER_MARGIN,
         )));
         let physics = world.add_rigid_body(
-            Isometry2::new(Vector2::new(x, y), angle),
+            Isometry2::new(Vector2::new(x, y), initial_angle),
             shape.inertia(1.0),
             shape.center_of_mass(),
         );
