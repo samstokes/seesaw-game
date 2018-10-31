@@ -8,11 +8,14 @@ extern crate piston;
 
 use glutin_window::GlutinWindow as Window;
 use graphics::line::Line;
-use nalgebra::{Isometry2, Point2, Vector2};
+use nalgebra::{Isometry2, Point2, Unit, Vector2};
 use ncollide2d::shape::{ConvexPolygon, Cuboid, Plane, ShapeHandle};
 use nphysics2d::{
+    force_generator::{ForceGenerator, ForceGeneratorHandle},
     joint::{FreeJoint, RevoluteJoint},
-    object::{BodyHandle, Material},
+    math::Force,
+    object::{BodyHandle, BodySet, Material},
+    solver::IntegrationParameters,
     world::World,
 };
 use opengl_graphics::{GlGraphics, OpenGL};
@@ -33,17 +36,46 @@ const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const BLUE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 
 const COLLIDER_MARGIN: f64 = 0.01;
 
 pub struct App {
     gl: GlGraphics,
     world: World<f64>,
+    player: Player,
     squares: Vec<Square>,
-    seesaw: Seesaw,
+    seesaws: Vec<Seesaw>,
     ground: Ground,
     render_count: u16,
     debug: bool,
+}
+
+struct Player {
+    body: Square,
+    impulse: Option<ForceGeneratorHandle>,
+}
+
+impl Player {
+    fn render(
+        &self,
+        world: &World<f64>,
+        transform: &graphics::math::Matrix2d,
+        gl: &mut GlGraphics,
+    ) {
+        self.body.render(world, transform, gl);
+    }
+
+    fn new(world: &mut World<f64>, initial_pos: [f64; 2]) -> Self {
+        Self {
+            body: Square::new(world, initial_pos, 0.0, 10.0, GREEN),
+            impulse: None,
+        }
+    }
+
+    fn handle(&self) -> BodyHandle {
+        self.body.physics
+    }
 }
 
 struct Square {
@@ -347,6 +379,35 @@ impl Plank {
     }
 }
 
+struct KeyboardImpulse {
+    direction: Unit<Vector2<f64>>,
+    target: BodyHandle,
+}
+
+impl KeyboardImpulse {
+    fn new(direction: Unit<Vector2<f64>>, target: BodyHandle) -> Self {
+        Self {
+            direction: direction,
+            target: target,
+        }
+    }
+}
+
+impl ForceGenerator<f64> for KeyboardImpulse {
+    fn apply(&mut self, _params: &IntegrationParameters<f64>, bodies: &mut BodySet<f64>) -> bool {
+        const MAGNITUDE: f64 = 500000.0;
+        const MAX_SPEED: f64 = 25.0;
+
+        let mut target = bodies.body_part_mut(self.target);
+
+        if target.as_ref().velocity().linear.dot(&self.direction) < MAX_SPEED {
+            target.apply_force(&Force::linear(self.direction.as_ref() * MAGNITUDE));
+        }
+
+        false // docs say false will remove this ForceGenerator after application, but it is actually ignored
+    }
+}
+
 fn draw_axes(
     half_width: f64,
     half_height: f64,
@@ -386,8 +447,9 @@ impl App {
         let half_height = (args.height / 2) as f64;
 
         let ground = &self.ground;
+        let player = &self.player;
         let squares = &self.squares;
-        let seesaw = &self.seesaw;
+        let seesaws = &self.seesaws;
         let world = &self.world;
         let debug = self.debug;
 
@@ -403,11 +465,15 @@ impl App {
                 draw_axes(half_width, half_height, &white_line, transform, gl);
             }
 
+            player.render(world, &transform, gl);
+
             for square in squares {
                 square.render(world, &transform, gl);
             }
 
-            seesaw.render(world, &transform, gl);
+            for seesaw in seesaws {
+                seesaw.render(world, &transform, gl);
+            }
 
             ground.render(&transform, gl);
         });
@@ -416,6 +482,19 @@ impl App {
     fn update(&mut self, args: &input::UpdateArgs) {
         self.world.set_timestep(args.dt);
         self.world.step();
+        for impulse in self.player.impulse {
+            self.world.remove_force_generator(impulse);
+            self.player.impulse = None;
+        }
+    }
+
+    fn move_player(&mut self, direction: Unit<Vector2<f64>>) {
+        for impulse in self.player.impulse {
+            self.world.remove_force_generator(impulse);
+            self.player.impulse = None;
+        }
+        let impulse = KeyboardImpulse::new(direction, self.player.handle());
+        self.player.impulse = Some(self.world.add_force_generator(impulse));
     }
 }
 
@@ -444,6 +523,8 @@ fn main() {
     let mut world = make_world();
 
     let ground = Ground::new(&mut world, GROUND_DEPTH, WHITE);
+
+    let player = Player::new(&mut world, [-SQUARE_SIZE * 10.0, GROUND_DEPTH - 10.0]);
 
     let squares = vec![
         Square::new(
@@ -477,22 +558,35 @@ fn main() {
         ),
     ];
 
-    let seesaw = Seesaw::new(
-        &mut world,
-        30.0,
-        PI / 8.0,
-        FULCRUM_HEIGHT,
-        PLANK_LENGTH,
-        PLANK_THICKNESS,
-        PLANK_LENGTH / 4.0,
-        BLUE,
-    );
+    let seesaws = vec![
+        Seesaw::new(
+            &mut world,
+            30.0,
+            -PI / 8.0,
+            FULCRUM_HEIGHT,
+            PLANK_LENGTH,
+            PLANK_THICKNESS,
+            PLANK_LENGTH / 4.0,
+            BLUE,
+        ),
+        Seesaw::new(
+            &mut world,
+            30.0 + PLANK_LENGTH / 2.0 - 1.0,
+            PI / 8.0,
+            FULCRUM_HEIGHT / 2.0,
+            PLANK_LENGTH / 2.0,
+            PLANK_THICKNESS,
+            -PLANK_LENGTH / 8.0,
+            BLUE,
+        ),
+    ];
 
     let mut app = App {
         gl: GlGraphics::new(opengl),
         world: world,
+        player: player,
         squares: squares,
-        seesaw: seesaw,
+        seesaws: seesaws,
         ground: ground,
         render_count: 0,
         debug: debug,
@@ -500,6 +594,7 @@ fn main() {
 
     let mut events = event_loop::Events::new(event_loop::EventSettings::new());
     while let Some(e) = events.next(&mut window) {
+        use input::PressEvent;
         use input::RenderEvent;
         use input::UpdateEvent;
 
@@ -509,6 +604,19 @@ fn main() {
 
         if let Some(u) = e.update_args() {
             app.update(&u);
+        }
+
+        if let Some(input::Button::Keyboard(key)) = e.press_args() {
+            use input::Key::*;
+            if let Some(direction) = match key {
+                H | Left => Some(-Vector2::x_axis()),
+                J | Down => Some(Vector2::y_axis()),
+                K | Up | Space => Some(-Vector2::y_axis()),
+                L | Right => Some(Vector2::x_axis()),
+                _ => None,
+            } {
+                app.move_player(direction)
+            }
         }
     }
 }
