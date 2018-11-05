@@ -5,6 +5,7 @@ extern crate ncollide2d;
 extern crate nphysics2d;
 extern crate opengl_graphics;
 extern crate piston;
+extern crate rand;
 
 use glutin_window::GlutinWindow as Window;
 use graphics::line::Line;
@@ -43,6 +44,14 @@ const SEMIGREY: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const BLUE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+
+fn jitter(base: [f32; 4], delta: [f32; 4]) -> [f32; 4] {
+    let mut result: [f32; 4] = [0.0; 4];
+    for i in 0..4 {
+        result[i] = base[i] + rand::random::<f32>() * delta[i];
+    }
+    result
+}
 
 const COLLIDER_MARGIN: f64 = 0.01;
 
@@ -761,42 +770,42 @@ fn main() {
             [-SQUARE_SIZE * 4.5, -SQUARE_SIZE * 5.0],
             0.0,
             SQUARE_SIZE * 0.5,
-            RED,
+            jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
         Box::new(Square::new(
             &mut world,
             [0.0, 0.0],
             PI * 0.25 - 0.1,
             SQUARE_SIZE,
-            RED,
+            jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
         Box::new(Square::new(
             &mut world,
             [-SQUARE_SIZE * 5.0, 1.0],
             PI * 0.25,
             SQUARE_SIZE * 2.0,
-            RED,
+            jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
         Box::new(Square::new(
             &mut world,
             [SQUARE_SIZE * 5.0, -50.0],
             0.0,
             SQUARE_SIZE * 3.0,
-            RED,
+            jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
         Box::new(Square::new(
             &mut world,
             [-SQUARE_SIZE * 10.0, -1.0],
             0.1,
             SQUARE_SIZE * 4.0,
-            RED,
+            jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
         // Circles
         Box::new(Circle::new(
             &mut world,
             [-SQUARE_SIZE * 10.0, -20.0],
             SQUARE_SIZE * 2.0,
-            RED,
+            jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
     ];
 
