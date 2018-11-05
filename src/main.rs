@@ -9,7 +9,7 @@ extern crate piston;
 use glutin_window::GlutinWindow as Window;
 use graphics::line::Line;
 use nalgebra::{Isometry2, Point2, Unit, Vector2};
-use ncollide2d::shape::{ConvexPolygon, Cuboid, Plane, ShapeHandle};
+use ncollide2d::shape::{Ball, ConvexPolygon, Cuboid, Plane, ShapeHandle};
 use nphysics2d::{
     force_generator::{ForceGenerator, ForceGeneratorHandle},
     joint::{FreeJoint, RevoluteJoint},
@@ -167,6 +167,53 @@ impl Object for Square {
         let square = graphics::rectangle::square(-self.size * 0.5, -self.size * 0.5, self.size);
 
         graphics::rectangle(self.color, square, transform, gl);
+    }
+}
+
+struct Circle {
+    size: f64,
+    color: [f32; 4],
+    physics: BodyHandle,
+}
+
+impl Circle {
+    fn new(world: &mut World<f64>, initial_pos: [f64; 2], size: f64, color: [f32; 4]) -> Self {
+        use nphysics2d::volumetric::Volumetric;
+
+        let [x, y] = initial_pos;
+
+        let shape = ShapeHandle::new(Ball::new(size * 0.5 - COLLIDER_MARGIN));
+        let physics = world.add_rigid_body(
+            Isometry2::new(Vector2::new(x, y), 0.0),
+            shape.inertia(1.0),
+            shape.center_of_mass(),
+        );
+
+        world.add_collider(
+            COLLIDER_MARGIN,
+            shape.clone(),
+            physics,
+            Isometry2::identity(),
+            Material::default(),
+        );
+
+        Self {
+            size: size,
+            color: color,
+            physics: physics,
+        }
+    }
+}
+
+impl Object for Circle {
+    fn physics(&self) -> BodyHandle {
+        self.physics
+    }
+
+    fn render_in_own_frame(&self, transform: graphics::math::Matrix2d, gl: &mut GlGraphics) {
+        let circle = graphics::ellipse::circle(0.0, 0.0, self.size * 0.5);
+
+        graphics::ellipse(self.color, circle, transform, gl);
     }
 }
 
@@ -630,6 +677,7 @@ fn main() {
     ];
 
     let objects: Vec<Box<Object>> = vec![
+        // Squares
         Box::new(Square::new(
             &mut world,
             [-SQUARE_SIZE * 4.5, -SQUARE_SIZE * 5.0],
@@ -663,6 +711,13 @@ fn main() {
             [-SQUARE_SIZE * 10.0, -1.0],
             0.1,
             SQUARE_SIZE * 4.0,
+            RED,
+        )),
+        // Circles
+        Box::new(Circle::new(
+            &mut world,
+            [-SQUARE_SIZE * 10.0, -20.0],
+            SQUARE_SIZE * 2.0,
             RED,
         )),
     ];
