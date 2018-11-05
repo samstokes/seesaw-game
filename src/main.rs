@@ -45,6 +45,7 @@ pub struct App {
     gl: GlGraphics,
     world: World<f64>,
     player: Player,
+    objects: Vec<Box<Object>>,
     squares: Vec<Square>,
     seesaws: Vec<Seesaw>,
     ground: Ground,
@@ -96,16 +97,16 @@ impl Square {
     ) {
         use graphics::Transformed;
 
-        let body = world.rigid_body(self.physics).unwrap();
-        let trans = body.position().translation.vector;
-        let rot = body.position().rotation;
+        let part = world.body_part(self.physics);
+        let trans = part.position().translation.vector;
+        let rot = part.position().rotation;
 
         let square = graphics::rectangle::square(-self.size * 0.5, -self.size * 0.5, self.size);
 
         let transform = transform.trans(trans[0], trans[1]);
 
         if debug {
-            let velocity = body.velocity().linear;
+            let velocity = part.velocity().linear;
             let speed = velocity.magnitude();
             let line = Line::new(SEMIGREY, 0.5);
             let draw_state = graphics::draw_state::DrawState::default();
@@ -154,6 +155,18 @@ impl Square {
             color: color,
             physics: physics,
         }
+    }
+}
+
+impl Object for Square {
+    fn physics(&self) -> BodyHandle {
+        self.physics
+    }
+
+    fn render_in_own_frame(&self, transform: graphics::math::Matrix2d, gl: &mut GlGraphics) {
+        let square = graphics::rectangle::square(-self.size * 0.5, -self.size * 0.5, self.size);
+
+        graphics::rectangle(self.color, square, transform, gl);
     }
 }
 
@@ -253,9 +266,9 @@ impl Fulcrum {
     ) {
         use graphics::Transformed;
 
-        let body = world.multibody_link(self.physics).unwrap();
-        let trans = body.position().translation.vector;
-        let rot = body.position().rotation;
+        let part = world.body_part(self.physics);
+        let trans = part.position().translation.vector;
+        let rot = part.position().rotation;
 
         let half_height = self.height * 0.5;
         let polygon = [
@@ -335,9 +348,9 @@ impl Plank {
     ) {
         use graphics::Transformed;
 
-        let body = world.multibody_link(self.physics).unwrap();
-        let trans = body.position().translation.vector;
-        let rot = body.position().rotation;
+        let part = world.body_part(self.physics);
+        let trans = part.position().translation.vector;
+        let rot = part.position().rotation;
 
         let rectangle =
             graphics::rectangle::centered([0.0, 0.0, self.length * 0.5, self.thickness * 0.5]);
@@ -395,6 +408,48 @@ impl Plank {
             color: color,
             physics: physics,
         }
+    }
+}
+
+trait Object {
+    fn physics(&self) -> BodyHandle;
+    fn render_in_own_frame(&self, transform: graphics::math::Matrix2d, gl: &mut GlGraphics);
+}
+
+impl Object {
+    fn render(
+        &self,
+        world: &World<f64>,
+        transform: &graphics::math::Matrix2d,
+        gl: &mut GlGraphics,
+        debug: bool,
+    ) {
+        use graphics::Transformed;
+
+        let part = world.body_part(self.physics());
+        let position = part.position();
+        let trans = position.translation.vector;
+        let rot = position.rotation;
+
+        let transform = transform.trans(trans[0], trans[1]);
+
+        if debug {
+            let velocity = part.velocity().linear;
+            let speed = velocity.magnitude();
+            let line = Line::new(SEMIGREY, 0.5);
+            let draw_state = graphics::draw_state::DrawState::default();
+            line.draw_arrow(
+                [0.0, 0.0, velocity[0], velocity[1]],
+                speed * 0.2,
+                &draw_state,
+                transform,
+                gl,
+            );
+        }
+
+        let transform = transform.rot_rad(rot.angle());
+
+        self.render_in_own_frame(transform, gl);
     }
 }
 
@@ -468,6 +523,7 @@ impl App {
 
         let ground = &self.ground;
         let player = &self.player;
+        let objects = &self.objects;
         let squares = &self.squares;
         let seesaws = &self.seesaws;
         let world = &self.world;
@@ -484,6 +540,10 @@ impl App {
             }
 
             player.render(world, &transform, gl, debug);
+
+            for object in objects {
+                object.as_ref().render(world, &transform, gl, debug);
+            }
 
             for square in squares {
                 square.render(world, &transform, gl, debug);
@@ -544,37 +604,7 @@ fn main() {
 
     let player = Player::new(&mut world, [-SQUARE_SIZE * 10.0, GROUND_DEPTH - 10.0]);
 
-    let squares = vec![
-        Square::new(
-            &mut world,
-            [-SQUARE_SIZE * 4.5, -SQUARE_SIZE * 5.0],
-            0.0,
-            SQUARE_SIZE * 0.5,
-            RED,
-        ),
-        Square::new(&mut world, [0.0, 0.0], PI * 0.25 - 0.1, SQUARE_SIZE, RED),
-        Square::new(
-            &mut world,
-            [-SQUARE_SIZE * 5.0, 1.0],
-            PI * 0.25,
-            SQUARE_SIZE * 2.0,
-            RED,
-        ),
-        Square::new(
-            &mut world,
-            [SQUARE_SIZE * 5.0, -50.0],
-            0.0,
-            SQUARE_SIZE * 3.0,
-            RED,
-        ),
-        Square::new(
-            &mut world,
-            [-SQUARE_SIZE * 10.0, -1.0],
-            0.1,
-            SQUARE_SIZE * 4.0,
-            RED,
-        ),
-    ];
+    let squares = vec![];
 
     let seesaws = vec![
         Seesaw::new(
@@ -599,10 +629,49 @@ fn main() {
         ),
     ];
 
+    let objects: Vec<Box<Object>> = vec![
+        Box::new(Square::new(
+            &mut world,
+            [-SQUARE_SIZE * 4.5, -SQUARE_SIZE * 5.0],
+            0.0,
+            SQUARE_SIZE * 0.5,
+            RED,
+        )),
+        Box::new(Square::new(
+            &mut world,
+            [0.0, 0.0],
+            PI * 0.25 - 0.1,
+            SQUARE_SIZE,
+            RED,
+        )),
+        Box::new(Square::new(
+            &mut world,
+            [-SQUARE_SIZE * 5.0, 1.0],
+            PI * 0.25,
+            SQUARE_SIZE * 2.0,
+            RED,
+        )),
+        Box::new(Square::new(
+            &mut world,
+            [SQUARE_SIZE * 5.0, -50.0],
+            0.0,
+            SQUARE_SIZE * 3.0,
+            RED,
+        )),
+        Box::new(Square::new(
+            &mut world,
+            [-SQUARE_SIZE * 10.0, -1.0],
+            0.1,
+            SQUARE_SIZE * 4.0,
+            RED,
+        )),
+    ];
+
     let mut app = App {
         gl: GlGraphics::new(opengl),
         world: world,
         player: player,
+        objects: objects,
         squares: squares,
         seesaws: seesaws,
         ground: ground,
