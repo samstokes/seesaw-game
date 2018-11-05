@@ -60,8 +60,6 @@ pub struct App {
     world: World<f64>,
     player: Player,
     objects: Vec<Box<Object>>,
-    squares: Vec<Square>,
-    seesaws: Vec<Seesaw>,
     ground: Ground,
     render_count: u16,
     debug: bool,
@@ -164,42 +162,6 @@ struct Square {
 }
 
 impl Square {
-    fn render(
-        &self,
-        world: &World<f64>,
-        transform: &graphics::math::Matrix2d,
-        gl: &mut GlGraphics,
-        debug: bool,
-    ) {
-        use graphics::Transformed;
-
-        let part = world.body_part(self.physics);
-        let trans = part.position().translation.vector;
-        let rot = part.position().rotation;
-
-        let square = graphics::rectangle::square(-self.size * 0.5, -self.size * 0.5, self.size);
-
-        let transform = transform.trans(trans[0], trans[1]);
-
-        if debug {
-            let velocity = part.velocity().linear;
-            let speed = velocity.magnitude();
-            let line = Line::new(SEMIGREY, 0.5);
-            let draw_state = graphics::draw_state::DrawState::default();
-            line.draw_arrow(
-                [0.0, 0.0, velocity[0], velocity[1]],
-                speed * 0.2,
-                &draw_state,
-                transform,
-                gl,
-            );
-        }
-
-        let transform = transform.rot_rad(rot.angle());
-
-        graphics::rectangle(self.color, square, transform, gl);
-    }
-
     fn new(
         world: &mut World<f64>,
         initial_pos: [f64; 2],
@@ -235,7 +197,7 @@ impl Square {
     }
 }
 
-impl Object for Square {
+impl SimpleObject for Square {
     fn physics(&self) -> BodyHandle {
         self.physics
     }
@@ -282,7 +244,7 @@ impl Circle {
     }
 }
 
-impl Object for Circle {
+impl SimpleObject for Circle {
     fn physics(&self) -> BodyHandle {
         self.physics
     }
@@ -338,16 +300,6 @@ struct Seesaw {
 }
 
 impl Seesaw {
-    fn render(
-        &self,
-        world: &World<f64>,
-        transform: &graphics::math::Matrix2d,
-        gl: &mut GlGraphics,
-    ) {
-        self.fulcrum.render(world, transform, gl);
-        self.plank.render(world, transform, gl);
-    }
-
     fn new(
         world: &mut World<f64>,
         initial_x: f64,
@@ -375,6 +327,19 @@ impl Seesaw {
     }
 }
 
+impl Object for Seesaw {
+    fn render(
+        &self,
+        world: &World<f64>,
+        transform: &graphics::math::Matrix2d,
+        gl: &mut GlGraphics,
+        debug: bool,
+    ) {
+        self.fulcrum.render(world, transform, gl, debug);
+        self.plank.render(world, transform, gl, debug);
+    }
+}
+
 struct Fulcrum {
     height: f64,
     color: [f32; 4],
@@ -382,30 +347,6 @@ struct Fulcrum {
 }
 
 impl Fulcrum {
-    fn render(
-        &self,
-        world: &World<f64>,
-        transform: &graphics::math::Matrix2d,
-        gl: &mut GlGraphics,
-    ) {
-        use graphics::Transformed;
-
-        let part = world.body_part(self.physics);
-        let trans = part.position().translation.vector;
-        let rot = part.position().rotation;
-
-        let half_height = self.height * 0.5;
-        let polygon = [
-            [-half_height, half_height],
-            [0.0, -half_height],
-            [half_height, half_height],
-        ];
-
-        let transform = transform.trans(trans[0], trans[1]).rot_rad(rot.angle());
-
-        graphics::polygon(self.color, &polygon, transform, gl);
-    }
-
     fn new(world: &mut World<f64>, initial_x: f64, height: f64, color: [f32; 4]) -> Self {
         use nphysics2d::volumetric::Volumetric;
 
@@ -456,6 +397,23 @@ impl Fulcrum {
     }
 }
 
+impl SimpleObject for Fulcrum {
+    fn physics(&self) -> BodyHandle {
+        self.physics
+    }
+
+    fn render_in_own_frame(&self, transform: graphics::math::Matrix2d, gl: &mut GlGraphics) {
+        let half_height = self.height * 0.5;
+        let polygon = [
+            [-half_height, half_height],
+            [0.0, -half_height],
+            [half_height, half_height],
+        ];
+
+        graphics::polygon(self.color, &polygon, transform, gl);
+    }
+}
+
 struct Plank {
     length: f64,
     thickness: f64,
@@ -464,26 +422,6 @@ struct Plank {
 }
 
 impl Plank {
-    fn render(
-        &self,
-        world: &World<f64>,
-        transform: &graphics::math::Matrix2d,
-        gl: &mut GlGraphics,
-    ) {
-        use graphics::Transformed;
-
-        let part = world.body_part(self.physics);
-        let trans = part.position().translation.vector;
-        let rot = part.position().rotation;
-
-        let rectangle =
-            graphics::rectangle::centered([0.0, 0.0, self.length * 0.5, self.thickness * 0.5]);
-
-        let transform = transform.trans(trans[0], trans[1]).rot_rad(rot.angle());
-
-        graphics::rectangle(self.color, rectangle, transform, gl);
-    }
-
     fn new(
         world: &mut World<f64>,
         fulcrum: &Fulcrum,
@@ -535,12 +473,35 @@ impl Plank {
     }
 }
 
+impl SimpleObject for Plank {
+    fn physics(&self) -> BodyHandle {
+        self.physics
+    }
+
+    fn render_in_own_frame(&self, transform: graphics::math::Matrix2d, gl: &mut GlGraphics) {
+        let rectangle =
+            graphics::rectangle::centered([0.0, 0.0, self.length * 0.5, self.thickness * 0.5]);
+
+        graphics::rectangle(self.color, rectangle, transform, gl);
+    }
+}
+
 trait Object {
+    fn render(
+        &self,
+        world: &World<f64>,
+        transform: &graphics::math::Matrix2d,
+        gl: &mut GlGraphics,
+        debug: bool,
+    );
+}
+
+trait SimpleObject {
     fn physics(&self) -> BodyHandle;
     fn render_in_own_frame(&self, transform: graphics::math::Matrix2d, gl: &mut GlGraphics);
 }
 
-impl Object {
+impl<T: SimpleObject> Object for T {
     fn render(
         &self,
         world: &World<f64>,
@@ -650,8 +611,6 @@ impl App {
         let ground = &self.ground;
         let player = &self.player;
         let objects = &self.objects;
-        let squares = &self.squares;
-        let seesaws = &self.seesaws;
         let world = &self.world;
         let debug = self.debug;
 
@@ -669,14 +628,6 @@ impl App {
 
             for object in objects {
                 object.as_ref().render(world, &transform, gl, debug);
-            }
-
-            for square in squares {
-                square.render(world, &transform, gl, debug);
-            }
-
-            for seesaw in seesaws {
-                seesaw.render(world, &transform, gl);
             }
 
             ground.render(&transform, gl);
@@ -738,31 +689,6 @@ fn main() {
 
     let player = Player::new(&mut world, [-SQUARE_SIZE * 10.0, GROUND_DEPTH - 10.0]);
 
-    let squares = vec![];
-
-    let seesaws = vec![
-        Seesaw::new(
-            &mut world,
-            30.0,
-            -PI / 8.0,
-            FULCRUM_HEIGHT,
-            PLANK_LENGTH,
-            PLANK_THICKNESS,
-            PLANK_LENGTH / 4.0,
-            BLUE,
-        ),
-        Seesaw::new(
-            &mut world,
-            30.0 + PLANK_LENGTH / 2.0 - 1.0,
-            PI / 8.0,
-            FULCRUM_HEIGHT / 2.0,
-            PLANK_LENGTH / 2.0,
-            PLANK_THICKNESS,
-            -PLANK_LENGTH / 8.0,
-            BLUE,
-        ),
-    ];
-
     let objects: Vec<Box<Object>> = vec![
         // Squares
         Box::new(Square::new(
@@ -807,6 +733,27 @@ fn main() {
             SQUARE_SIZE * 2.0,
             jitter(RED, [-0.4, 0.0, 0.0, 0.0]),
         )),
+        // Seesaws
+        Box::new(Seesaw::new(
+            &mut world,
+            30.0,
+            -PI / 8.0,
+            FULCRUM_HEIGHT,
+            PLANK_LENGTH,
+            PLANK_THICKNESS,
+            PLANK_LENGTH / 4.0,
+            BLUE,
+        )),
+        Box::new(Seesaw::new(
+            &mut world,
+            30.0 + PLANK_LENGTH / 2.0 - 1.0,
+            PI / 8.0,
+            FULCRUM_HEIGHT / 2.0,
+            PLANK_LENGTH / 2.0,
+            PLANK_THICKNESS,
+            -PLANK_LENGTH / 8.0,
+            BLUE,
+        )),
     ];
 
     let mut app = App {
@@ -814,8 +761,6 @@ fn main() {
         world: world,
         player: player,
         objects: objects,
-        squares: squares,
-        seesaws: seesaws,
         ground: ground,
         render_count: 0,
         debug: debug,
