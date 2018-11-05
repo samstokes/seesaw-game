@@ -627,10 +627,12 @@ impl App {
     fn render(&mut self, args: &input::RenderArgs) {
         use graphics::Transformed;
 
-        self.render_count += 1;
-        if self.render_count % 60 == 0 {
-            self.render_count = 0;
-            println!("{:?}", args);
+        if self.debug {
+            self.render_count += 1;
+            if self.render_count % 60 == 0 {
+                self.render_count = 0;
+                println!("{:?}", args);
+            }
         }
 
         let half_width = (args.width / 2) as f64;
