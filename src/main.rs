@@ -34,6 +34,7 @@ const PI: f64 = std::f64::consts::PI;
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const SEMIGREY: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const BLUE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
@@ -62,8 +63,9 @@ impl Player {
         world: &World<f64>,
         transform: &graphics::math::Matrix2d,
         gl: &mut GlGraphics,
+        debug: bool,
     ) {
-        self.body.render(world, transform, gl);
+        self.body.render(world, transform, gl, debug);
     }
 
     fn new(world: &mut World<f64>, initial_pos: [f64; 2]) -> Self {
@@ -90,6 +92,7 @@ impl Square {
         world: &World<f64>,
         transform: &graphics::math::Matrix2d,
         gl: &mut GlGraphics,
+        debug: bool,
     ) {
         use graphics::Transformed;
 
@@ -99,7 +102,23 @@ impl Square {
 
         let square = graphics::rectangle::square(-self.size * 0.5, -self.size * 0.5, self.size);
 
-        let transform = transform.trans(trans[0], trans[1]).rot_rad(rot.angle());
+        let transform = transform.trans(trans[0], trans[1]);
+
+        if debug {
+            let velocity = body.velocity().linear;
+            let speed = velocity.magnitude();
+            let line = Line::new(SEMIGREY, 0.5);
+            let draw_state = graphics::draw_state::DrawState::default();
+            line.draw_arrow(
+                [0.0, 0.0, velocity[0], velocity[1]],
+                speed * 0.2,
+                &draw_state,
+                transform,
+                gl,
+            );
+        }
+
+        let transform = transform.rot_rad(rot.angle());
 
         graphics::rectangle(self.color, square, transform, gl);
     }
@@ -411,10 +430,11 @@ impl ForceGenerator<f64> for KeyboardImpulse {
 fn draw_axes(
     half_width: f64,
     half_height: f64,
-    line: &Line,
     transform: graphics::math::Matrix2d,
     gl: &mut GlGraphics,
 ) {
+    let line = Line::new(SEMIGREY, 1.0);
+
     let draw_state = graphics::draw_state::DrawState::default();
 
     line.draw_arrow(
@@ -456,19 +476,17 @@ impl App {
         self.gl.draw(args.viewport(), |c, gl| {
             graphics::clear(BLACK, gl);
 
-            let white_line = Line::new(WHITE, 1.0);
-
             // set up so (0, 0) is in the center of the viewport
             let transform = c.transform.trans(half_width, half_height);
 
             if debug {
-                draw_axes(half_width, half_height, &white_line, transform, gl);
+                draw_axes(half_width, half_height, transform, gl);
             }
 
-            player.render(world, &transform, gl);
+            player.render(world, &transform, gl, debug);
 
             for square in squares {
-                square.render(world, &transform, gl);
+                square.render(world, &transform, gl, debug);
             }
 
             for seesaw in seesaws {
