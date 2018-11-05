@@ -9,7 +9,11 @@ extern crate piston;
 use glutin_window::GlutinWindow as Window;
 use graphics::line::Line;
 use nalgebra::{Isometry2, Point2, Unit, Vector2};
-use ncollide2d::shape::{Ball, ConvexPolygon, Cuboid, Plane, ShapeHandle};
+use ncollide2d::{
+    events::ContactEvent,
+    shape::{Ball, ConvexPolygon, Cuboid, Plane, ShapeHandle},
+    world::CollisionObjectHandle,
+};
 use nphysics2d::{
     force_generator::{ForceGenerator, ForceGeneratorHandle},
     joint::{FreeJoint, RevoluteJoint},
@@ -22,6 +26,7 @@ use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop;
 use piston::input;
 use piston::window::WindowSettings;
+use std::collections::HashSet;
 
 const G: f64 = 9.81;
 const SQUARE_SIZE: f64 = 10.0;
@@ -55,7 +60,10 @@ pub struct App {
 
 struct Player {
     body: Square,
-    impulse: Option<ForceGeneratorHandle>,
+    contacts: HashSet<CollisionObjectHandle>,
+    impulse_up: Option<ForceGeneratorHandle>,
+    impulse_left: Option<ForceGeneratorHandle>,
+    impulse_right: Option<ForceGeneratorHandle>,
 }
 
 impl Player {
@@ -72,12 +80,70 @@ impl Player {
     fn new(world: &mut World<f64>, initial_pos: [f64; 2]) -> Self {
         Self {
             body: Square::new(world, initial_pos, 0.0, 10.0, GREEN),
-            impulse: None,
+            contacts: HashSet::new(),
+            impulse_up: None,
+            impulse_left: None,
+            impulse_right: None,
         }
     }
 
     fn handle(&self) -> BodyHandle {
         self.body.physics
+    }
+
+    fn collision_handle(&self) -> CollisionObjectHandle {
+        self.body.collision
+    }
+
+    fn can_jump(&self) -> bool {
+        // TODO actually check we are _above_ the contacts
+        // or generalise that so we can do wall-jumps etc?
+        !self.contacts.is_empty()
+    }
+
+    fn move_up(&mut self, world: &mut World<f64>) {
+        if self.impulse_up.is_some() || !self.can_jump() {
+            return;
+        };
+        let impulse = KeyboardImpulse::new(-Vector2::y_axis(), self.handle());
+        self.impulse_up = Some(world.add_force_generator(impulse));
+    }
+
+    fn stop_moving_up(&mut self, world: &mut World<f64>) {
+        for impulse in self.impulse_up {
+            world.remove_force_generator(impulse);
+            self.impulse_up = None;
+        }
+    }
+
+    fn move_left(&mut self, world: &mut World<f64>) {
+        if self.impulse_left.is_some() {
+            return;
+        };
+        let impulse = KeyboardImpulse::new(-Vector2::x_axis(), self.handle());
+        self.impulse_left = Some(world.add_force_generator(impulse));
+    }
+
+    fn stop_moving_left(&mut self, world: &mut World<f64>) {
+        for impulse in self.impulse_left {
+            world.remove_force_generator(impulse);
+            self.impulse_left = None;
+        }
+    }
+
+    fn move_right(&mut self, world: &mut World<f64>) {
+        if self.impulse_right.is_some() {
+            return;
+        };
+        let impulse = KeyboardImpulse::new(Vector2::x_axis(), self.handle());
+        self.impulse_right = Some(world.add_force_generator(impulse));
+    }
+
+    fn stop_moving_right(&mut self, world: &mut World<f64>) {
+        for impulse in self.impulse_right {
+            world.remove_force_generator(impulse);
+            self.impulse_right = None;
+        }
     }
 }
 
@@ -85,6 +151,7 @@ struct Square {
     size: f64,
     color: [f32; 4],
     physics: BodyHandle,
+    collision: CollisionObjectHandle,
 }
 
 impl Square {
@@ -142,7 +209,7 @@ impl Square {
             shape.center_of_mass(),
         );
 
-        world.add_collider(
+        let collision = world.add_collider(
             COLLIDER_MARGIN,
             shape.clone(),
             physics,
@@ -154,6 +221,7 @@ impl Square {
             size: size,
             color: color,
             physics: physics,
+            collision: collision,
         }
     }
 }
@@ -516,8 +584,8 @@ impl KeyboardImpulse {
 
 impl ForceGenerator<f64> for KeyboardImpulse {
     fn apply(&mut self, _params: &IntegrationParameters<f64>, bodies: &mut BodySet<f64>) -> bool {
-        const MAGNITUDE: f64 = 500000.0;
-        const MAX_SPEED: f64 = 25.0;
+        const MAGNITUDE: f64 = 15000.0;
+        const MAX_SPEED: f64 = 50.0;
 
         let mut target = bodies.body_part_mut(self.target);
 
@@ -607,19 +675,27 @@ impl App {
     fn update(&mut self, args: &input::UpdateArgs) {
         self.world.set_timestep(args.dt);
         self.world.step();
-        for impulse in self.player.impulse {
-            self.world.remove_force_generator(impulse);
-            self.player.impulse = None;
-        }
-    }
 
-    fn move_player(&mut self, direction: Unit<Vector2<f64>>) {
-        for impulse in self.player.impulse {
-            self.world.remove_force_generator(impulse);
-            self.player.impulse = None;
+        for event in self.world.contact_events() {
+            match event {
+                ContactEvent::Started(collision1, collision2) => {
+                    if *collision1 == self.player.collision_handle() {
+                        self.player.contacts.insert(*collision2);
+                    }
+                    if *collision2 == self.player.collision_handle() {
+                        self.player.contacts.insert(*collision1);
+                    }
+                }
+                ContactEvent::Stopped(collision1, collision2) => {
+                    if *collision1 == self.player.collision_handle() {
+                        self.player.contacts.remove(collision2);
+                    }
+                    if *collision2 == self.player.collision_handle() {
+                        self.player.contacts.remove(collision1);
+                    }
+                }
+            }
         }
-        let impulse = KeyboardImpulse::new(direction, self.player.handle());
-        self.player.impulse = Some(self.world.add_force_generator(impulse));
     }
 }
 
@@ -737,6 +813,7 @@ fn main() {
     let mut events = event_loop::Events::new(event_loop::EventSettings::new());
     while let Some(e) = events.next(&mut window) {
         use input::PressEvent;
+        use input::ReleaseEvent;
         use input::RenderEvent;
         use input::UpdateEvent;
 
@@ -750,14 +827,21 @@ fn main() {
 
         if let Some(input::Button::Keyboard(key)) = e.press_args() {
             use input::Key::*;
-            if let Some(direction) = match key {
-                H | Left => Some(-Vector2::x_axis()),
-                J | Down => Some(Vector2::y_axis()),
-                K | Up | Space => Some(-Vector2::y_axis()),
-                L | Right => Some(Vector2::x_axis()),
-                _ => None,
-            } {
-                app.move_player(direction)
+            match key {
+                H | Left => app.player.move_left(&mut app.world),
+                K | Up | Space => app.player.move_up(&mut app.world),
+                L | Right => app.player.move_right(&mut app.world),
+                _ => (),
+            }
+        }
+
+        if let Some(input::Button::Keyboard(key)) = e.release_args() {
+            use input::Key::*;
+            match key {
+                H | Left => app.player.stop_moving_left(&mut app.world),
+                K | Up | Space => app.player.stop_moving_up(&mut app.world),
+                L | Right => app.player.stop_moving_right(&mut app.world),
+                _ => (),
             }
         }
     }
