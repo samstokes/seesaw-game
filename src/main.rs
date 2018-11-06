@@ -249,7 +249,7 @@ impl Square {
 
         let collision = world.add_collider(
             COLLIDER_MARGIN,
-            shape.clone(),
+            shape,
             physics,
             Isometry2::identity(),
             Material::default(),
@@ -297,7 +297,7 @@ impl Circle {
 
         world.add_collider(
             COLLIDER_MARGIN,
-            shape.clone(),
+            shape,
             physics,
             Isometry2::identity(),
             Material::default(),
@@ -450,7 +450,7 @@ impl Fulcrum {
 
         world.add_collider(
             COLLIDER_MARGIN,
-            shape.clone(),
+            shape,
             physics,
             Isometry2::identity(),
             Material::default(),
@@ -525,7 +525,7 @@ impl Plank {
 
         world.add_collider(
             COLLIDER_MARGIN,
-            shape.clone(),
+            shape,
             physics,
             Isometry2::identity(),
             Material::default(),
