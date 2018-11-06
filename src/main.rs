@@ -12,6 +12,7 @@ use graphics::line::Line;
 use nalgebra::{Isometry2, Point2, Unit, Vector2};
 use ncollide2d::{
     events::ContactEvent,
+    query::Proximity,
     shape::{Ball, ConvexPolygon, Cuboid, Plane, ShapeHandle},
     world::CollisionObjectHandle,
 };
@@ -19,7 +20,7 @@ use nphysics2d::{
     force_generator::{ForceGenerator, ForceGeneratorHandle},
     joint::{FreeJoint, RevoluteJoint},
     math::Force,
-    object::{BodyHandle, BodySet, Material},
+    object::{BodyHandle, BodySet, Material, SensorHandle},
     solver::IntegrationParameters,
     world::World,
 };
@@ -61,6 +62,7 @@ pub struct App {
     player: Player,
     objects: Vec<Box<Object>>,
     ground: Ground,
+    goal: Goal,
     render_count: u16,
     debug: bool,
 }
@@ -71,6 +73,7 @@ struct Player {
     impulse_up: Option<ForceGeneratorHandle>,
     impulse_left: Option<ForceGeneratorHandle>,
     impulse_right: Option<ForceGeneratorHandle>,
+    winning: bool,
 }
 
 impl Player {
@@ -91,11 +94,18 @@ impl Player {
             impulse_up: None,
             impulse_left: None,
             impulse_right: None,
+            winning: false,
         }
     }
 
     fn handle(&self) -> BodyHandle {
         self.body.physics
+    }
+
+    fn update(&mut self, dt: f64) {
+        if self.winning {
+            self.body.size = self.body.size.powf(1.0 + dt);
+        }
     }
 
     fn collision_handle(&self) -> CollisionObjectHandle {
@@ -151,6 +161,63 @@ impl Player {
             world.remove_force_generator(impulse);
             self.impulse_right = None;
         }
+    }
+}
+
+struct Goal {
+    size: f64,
+    line: Line,
+    position: [f64; 2],
+    sensor: SensorHandle,
+}
+
+impl Goal {
+    fn new(world: &mut World<f64>, position: [f64; 2], size: f64, color: [f32; 4]) -> Self {
+        const LINE_WIDTH: f64 = 1.0;
+
+        let [x, y] = position;
+        let sensor = world.add_sensor(
+            ShapeHandle::new(Cuboid::new(Vector2::repeat(size * 0.5 - COLLIDER_MARGIN))),
+            BodyHandle::ground(),
+            Isometry2::new(Vector2::new(x, y), 0.0),
+        );
+
+        Goal {
+            size: size,
+            line: Line::new(color, LINE_WIDTH),
+            position: position,
+            sensor: sensor,
+        }
+    }
+
+    fn render(&self, transform: &graphics::math::Matrix2d, gl: &mut GlGraphics) {
+        let draw_state = graphics::draw_state::DrawState::default();
+        let [x, y] = self.position;
+        let halfsize = self.size * 0.5;
+        self.line.draw(
+            [x - halfsize, y - halfsize, x + halfsize, y - halfsize],
+            &draw_state,
+            *transform,
+            gl,
+        );
+        self.line.draw(
+            [x + halfsize, y - halfsize, x + halfsize, y + halfsize],
+            &draw_state,
+            *transform,
+            gl,
+        );
+        self.line.draw(
+            [x + halfsize, y + halfsize, x - halfsize, y + halfsize],
+            &draw_state,
+            *transform,
+            gl,
+        );
+        self.line.draw(
+            [x - halfsize, y + halfsize, x - halfsize, y - halfsize],
+            &draw_state,
+            *transform,
+            gl,
+        );
     }
 }
 
@@ -610,6 +677,7 @@ impl App {
 
         let ground = &self.ground;
         let player = &self.player;
+        let goal = &self.goal;
         let objects = &self.objects;
         let world = &self.world;
         let debug = self.debug;
@@ -629,6 +697,8 @@ impl App {
             for object in objects {
                 object.as_ref().render(world, &transform, gl, debug);
             }
+
+            goal.render(&transform, gl);
 
             ground.render(&transform, gl);
         });
@@ -658,6 +728,19 @@ impl App {
                 }
             }
         }
+
+        for event in self.world.proximity_events() {
+            if ((event.collider1 == self.player.collision_handle()
+                && event.collider2 == self.goal.sensor)
+                || (event.collider2 == self.player.collision_handle()
+                    && event.collider1 == self.goal.sensor))
+                && event.new_status == Proximity::Intersecting
+            {
+                self.player.winning = true;
+            }
+        }
+
+        self.player.update(args.dt);
     }
 }
 
@@ -756,10 +839,18 @@ fn main() {
         )),
     ];
 
+    let goal = Goal::new(
+        &mut world,
+        [SQUARE_SIZE * 10.0, SQUARE_SIZE * -10.0],
+        SQUARE_SIZE * 5.0,
+        GREEN,
+    );
+
     let mut app = App {
         gl: GlGraphics::new(opengl),
         world: world,
         player: player,
+        goal: goal,
         objects: objects,
         ground: ground,
         render_count: 0,
